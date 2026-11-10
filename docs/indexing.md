@@ -10,6 +10,8 @@
 
 The report exposes `bootstrap_block`, `last_verified_block`, `safe_head`, `unscanned_safe_blocks`, and `historical_gap_before_bootstrap`. A nonzero backlog or historical gap is never represented as full-chain coverage. Trace API failure is fatal for that block. No fallback to receipts-only coverage exists. The SQLite database must reside on durable storage, with a single writer; a GitHub Actions runner's ephemeral disk is unsuitable. The existing scheduled Action does not run this worker.
 
+Run `python -m radar.probe --block HEIGHT` before starting an indexer. It checks chain ID, a finalized block, and transaction-by-transaction callTracer coverage without changing a checkpoint. On 2026-11-10, the official public RPC served chain ID and block data but returned JSON-RPC `-32601` for both `debug_traceBlockByNumber` and `trace_block`. A separately configured trace-capable endpoint is required for this worker. Put its URL in `ROBINHOOD_RPC_URL` as an environment secret; do not commit it.
+
 For sustained operation, run the worker continuously on a trace-capable node and measure blocks processed per second against chain production. Raise the configurable batch budget while lag grows, but do not trade away per-block checks. Keep the indexed blocks and candidate evidence in durable storage; for multi-worker scale, partition fixed block ranges into jobs, store range proofs, and advance the global watermark only across consecutive completed ranges. Separate backfill from tip following. Retain block hashes for reorg checks and retain deployment evidence by transaction hash plus trace path. A production database can replace SQLite when multiple writers or large-scale analytical queries become necessary.
 
 ## Candidate evidence and alerts
