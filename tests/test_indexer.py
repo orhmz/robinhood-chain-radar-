@@ -33,8 +33,10 @@ def fixture_call(method, params=None):
                 {"type": "CREATE", "to": DIRECT, "error": "reverted"}]}}
         ]
     if method == "eth_getTransactionReceipt":
-        return {"transactionHash": TX1, "blockNumber": hex(10),
-                "blockHash": BLOCK_HASH, "status": "0x1", "contractAddress": DIRECT}
+        tx_hash = params[0]
+        return {"transactionHash": tx_hash, "blockNumber": hex(10),
+                "blockHash": BLOCK_HASH, "status": "0x1",
+                "contractAddress": DIRECT if tx_hash == TX1 else None}
     raise AssertionError(method)
 
 
@@ -86,11 +88,34 @@ class IndexerTests(unittest.TestCase):
     def test_direct_receipt_mismatch_fails(self):
         def bad_receipt(method, params=None):
             result = fixture_call(method, params)
-            if method == "eth_getTransactionReceipt":
+            if method == "eth_getTransactionReceipt" and params[0] == TX1:
                 return {**result, "contractAddress": FACTORY}
             return result
         with self.assertRaises(CoverageError):
             index(self.db, start_block=10, call=bad_receipt)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM coverage").fetchone()[0], 0)
+
+    def test_reverted_factory_receipt_cannot_create(self):
+        def reverted(method, params=None):
+            result = fixture_call(method, params)
+            if method == "eth_getTransactionReceipt" and params[0] == TX2:
+                return {**result, "status": "0x0"}
+            return result
+        with self.assertRaises(CoverageError):
+            index(self.db, start_block=10, call=reverted)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM coverage").fetchone()[0], 0)
+
+    def test_block_change_during_trace_stops_commit(self):
+        reads = 0
+        def unstable(method, params=None):
+            nonlocal reads
+            if method == "eth_getBlockByNumber" and params[1] is False:
+                reads += 1
+                if reads == 1:
+                    return {"hash": PARENT_HASH}
+            return fixture_call(method, params)
+        with self.assertRaises(CoverageError):
+            index(self.db, start_block=10, call=unstable)
         self.assertEqual(self.db.execute("SELECT count(*) FROM coverage").fetchone()[0], 0)
 
     def test_assessment_and_dedup_are_gated(self):

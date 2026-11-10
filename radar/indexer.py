@@ -8,6 +8,7 @@ import datetime as dt
 import json
 import os
 import sqlite3
+import time
 from pathlib import Path
 
 from radar.scan import rpc
@@ -138,21 +139,27 @@ def index(db, start_block=None, max_blocks=100, call=rpc_result):
             if not isinstance(tree, dict):
                 raise CoverageError(f"Malformed trace for {tx_hash}")
             found = list(parse_creations(tree, tx_hash, height))
+            receipt = call("eth_getTransactionReceipt", [tx["hash"]])
+            if (not isinstance(receipt, dict) or
+                receipt.get("transactionHash", "").lower() != tx_hash or
+                quantity(receipt.get("blockNumber")) != height or
+                receipt.get("blockHash", "").lower() != block_hash):
+                raise CoverageError(f"Invalid receipt for {tx_hash}")
+            status = quantity(receipt.get("status"))
+            if status not in (0, 1) or (status == 0 and found):
+                raise CoverageError(f"Trace/receipt status mismatch for {tx_hash}")
             if tx.get("to") is None:
-                receipt = call("eth_getTransactionReceipt", [tx["hash"]])
-                if (not isinstance(receipt, dict) or
-                    receipt.get("transactionHash", "").lower() != tx_hash or
-                    quantity(receipt.get("blockNumber")) != height or
-                    receipt.get("blockHash", "").lower() != block_hash):
-                    raise CoverageError(f"Invalid creation receipt for {tx_hash}")
-                success = quantity(receipt.get("status")) == 1
                 direct = [row for row in found if row[2] == "[]"]
-                if success and (len(direct) != 1 or
+                if status == 1 and (len(direct) != 1 or
                                 direct[0][3] != address(receipt.get("contractAddress"))):
                     raise CoverageError(f"Direct creation not corroborated by trace: {tx_hash}")
-                if not success and direct:
+                if status == 0 and direct:
                     raise CoverageError(f"Reverted creation present in trace: {tx_hash}")
             creations.extend(found)
+        # A reorg between block and trace requests must not produce a false proof.
+        confirmation = call("eth_getBlockByNumber", [hex(height), False])
+        if not isinstance(confirmation, dict) or confirmation.get("hash", "").lower() != block_hash:
+            raise CoverageError(f"Block changed during trace at {height}")
         with db:
             db.executemany("INSERT INTO deployments VALUES (?, ?, ?, ?, ?, ?)", creations)
             db.execute("INSERT INTO coverage VALUES (?, ?, ?, ?, ?, ?)",
@@ -176,11 +183,22 @@ def main():
     parser.add_argument("--database", type=Path, required=True)
     parser.add_argument("--start-block", type=int)
     parser.add_argument("--max-blocks", type=int, default=100)
+    parser.add_argument("--follow", action="store_true", help="continue processing new safe blocks")
+    parser.add_argument("--poll-seconds", type=float, default=2)
     args = parser.parse_args()
     args.database.parent.mkdir(parents=True, exist_ok=True)
     db = open_store(args.database)
     try:
-        print(json.dumps(index(db, args.start_block, args.max_blocks)))
+        if args.poll_seconds <= 0:
+            parser.error("--poll-seconds must be positive")
+        while True:
+            report = index(db, args.start_block, args.max_blocks)
+            print(json.dumps(report), flush=True)
+            if not args.follow:
+                break
+            args.start_block = None
+            if report["unscanned_safe_blocks"] == 0:
+                time.sleep(args.poll_seconds)
     finally:
         db.close()
 
