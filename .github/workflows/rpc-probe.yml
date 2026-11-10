@@ -28,12 +28,14 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import re
           from urllib.parse import urlsplit
           endpoint = urlsplit(os.environ['ROBINHOOD_RPC_URL'])
           print(json.dumps({
               'endpoint_is_https': endpoint.scheme == 'https',
               'host_is_chainstack_mainnet': endpoint.hostname == 'robinhood-mainnet.core.chainstack.com',
               'has_endpoint_id_path': bool(endpoint.path.strip('/')),
+              'endpoint_id_has_expected_shape': bool(re.fullmatch(r'[0-9a-fA-F]{32}', endpoint.path.strip('/'))),
           }))
           PY
           python -m radar.probe
