@@ -91,6 +91,14 @@ def main():
             "chain_wide_coverage": False,
         }
         result["status"] = "incremental_partial_chain_coverage"
+        result["coverage"]["backlog_status"] = (
+            "caught_up" if safe_head == end else "behind_chain_tip"
+        )
+        result["coverage"]["alert_eligible"] = False
+        result["coverage"]["reason"] = (
+            "No full contract coverage: factory/internal deployments excluded, "
+            "historical bootstrap gap exists, and block backlog may remain"
+        )
         CHECKPOINT.write_text(json.dumps({
             "chain_id": 4663,
             "last_scanned_block": end,
