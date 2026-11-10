@@ -1,4 +1,5 @@
 import io
+import base64
 import json
 import unittest
 import urllib.error
@@ -49,6 +50,17 @@ class RpcClientTests(unittest.TestCase):
         self.assertEqual(attempts, 3)
         self.assertEqual(delays, [1, 2])
         self.assertIn("HTTP 429", str(caught.exception))
+
+    def test_chainstack_basic_credentials(self):
+        def opener(request, timeout):
+            value = request.get_header("Authorization")
+            self.assertTrue(value.startswith("Basic "))
+            self.assertEqual(base64.b64decode(value[6:]).decode(), "reviewer:private-password")
+            return Response(b'{"jsonrpc":"2.0","id":1,"result":"0x1237"}')
+        with patch.dict("os.environ", {"ROBINHOOD_RPC_URL": "https://example.org/rpc",
+                                    "ROBINHOOD_RPC_BASIC_USER": "reviewer",
+                                    "ROBINHOOD_RPC_BASIC_PASSWORD": "private-password"}, clear=True):
+            self.assertEqual(call("eth_chainId", opener=opener), "0x1237")
 
 
 if __name__ == "__main__":

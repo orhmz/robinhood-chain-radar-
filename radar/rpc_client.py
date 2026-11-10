@@ -1,4 +1,5 @@
 """Trace-worker RPC transport; keeps endpoint credentials out of diagnostics."""
+import base64
 import json
 import os
 import time
@@ -16,7 +17,11 @@ def call(method, params=None, opener=urllib.request.urlopen, sleeper=time.sleep)
     url = os.getenv("ROBINHOOD_RPC_URL", DEFAULT_RPC)
     bearer = os.getenv("ROBINHOOD_RPC_BEARER_TOKEN")
     x_token = os.getenv("ROBINHOOD_RPC_X_TOKEN")
-    if bearer and x_token:
+    basic_user = os.getenv("ROBINHOOD_RPC_BASIC_USER")
+    basic_password = os.getenv("ROBINHOOD_RPC_BASIC_PASSWORD")
+    if bool(basic_user) != bool(basic_password):
+        raise RpcError("Both RPC basic username and password are required")
+    if sum(bool(value) for value in (bearer, x_token, basic_user)) > 1:
         raise RpcError("Configure only one RPC authentication method")
     headers = {"Content-Type": "application/json", "Accept": "application/json",
                "User-Agent": "Robinhood-Chain-Data-Health/1.1"}
@@ -24,6 +29,9 @@ def call(method, params=None, opener=urllib.request.urlopen, sleeper=time.sleep)
         headers["Authorization"] = f"Bearer {bearer}"
     if x_token:
         headers["x-token"] = x_token
+    if basic_user:
+        credentials = base64.b64encode(f"{basic_user}:{basic_password}".encode()).decode()
+        headers["Authorization"] = f"Basic {credentials}"
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method,
                        "params": params or []}).encode()
     request = urllib.request.Request(url, data=body, headers=headers)
@@ -51,7 +59,7 @@ def call(method, params=None, opener=urllib.request.urlopen, sleeper=time.sleep)
         if not isinstance(error, dict):
             raise RpcError(f"{method}: invalid RPC error response")
         message = str(error.get("message", ""))
-        for secret in (url, bearer, x_token):
+        for secret in (url, bearer, x_token, basic_user, basic_password):
             if secret:
                 message = message.replace(secret, "[redacted]")
         raise RpcError(f"{method}: RPC error {error.get('code')}: {message}")
