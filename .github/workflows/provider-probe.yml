@@ -1,0 +1,32 @@
+name: Robinhood provider capability probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/provider-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    env:
+      ROBINHOOD_RPC_URL: ${{ secrets.ROBINHOOD_RPC_URL }}
+      ROBINHOOD_RPC_BASIC_USER: ${{ secrets.ROBINHOOD_RPC_BASIC_USER }}
+      ROBINHOOD_RPC_BASIC_PASSWORD: ${{ secrets.ROBINHOOD_RPC_BASIC_PASSWORD }}
+      ROBINHOOD_RPC_BEARER_TOKEN: ${{ secrets.ROBINHOOD_RPC_BEARER_TOKEN }}
+      ROBINHOOD_RPC_X_TOKEN: ${{ secrets.ROBINHOOD_RPC_X_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Probe finalized recent block
+        run: python -m radar.probe
+      - name: Probe historical block with known factory deployment
+        if: always()
+        run: python -m radar.probe --block 111009151
