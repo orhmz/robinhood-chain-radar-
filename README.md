@@ -16,3 +16,5 @@ The workflow runs every six hours. If the explorer blocks requests, the job will
 
 ## Next phase
 Add independent RPC verification, paginated contract-creation and transaction/log indexing with persistent **coverage** checkpoints, official project identity checks, token economics and duplicate-safe alert generation. Do not connect investment notifications before coverage tests pass.
+
+An opt-in trace-complete indexer prototype, offline assessment rubric, and tests now live in `radar/indexer.py`, `radar/assessment.py`, and `tests/`. See [the architecture and operating limits](docs/indexing.md). This does not change the scheduled data-health workflow or enable notifications.
