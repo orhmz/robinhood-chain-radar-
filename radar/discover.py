@@ -36,6 +36,9 @@ def main():
             end = safe_head
             start = end - SAMPLE_BLOCKS + 1
         else:
+            anchor, _ = rpc("eth_getBlockByNumber", [hex(int(prior_end)), False])
+            if not isinstance(anchor, dict) or anchor.get("hash", "").lower() != checkpoint.get("last_scanned_block_hash", "").lower():
+                raise RuntimeError("Checkpoint anchor block hash mismatch: possible reorg; refusing to advance")
             start = int(prior_end) + 1
             end = min(start + SAMPLE_BLOCKS - 1, safe_head)
             if start > safe_head:
@@ -95,7 +98,7 @@ def main():
             "updated_at_utc": utc_now().isoformat(),
             "historical_gap_before_bootstrap": True,
             "coverage_type": "top_level_contract_creation_only",
-        }, indent=2) + "\\n")
+        }, indent=2) + "\n")
     except Exception as exc:
         result["errors"].append(str(exc))
     finally:
