@@ -4,6 +4,7 @@ Requires an RPC node that serves debug_traceBlockByNumber with callTracer.
 No alerts or project identity claims are emitted by this module.
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import datetime as dt
 import json
 import os
@@ -11,7 +12,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-from radar.scan import rpc
+from radar.rpc_client import RpcError, call as rpc
 
 CHAIN_ID = 4663
 CONFIRMATIONS = 6
@@ -69,16 +70,93 @@ def open_store(path):
 
 
 def rpc_result(method, params=None):
-    result, _ = rpc(method, params)
+    result = rpc(method, params)
     if result is None:
         raise CoverageError(f"Null RPC response from {method}")
     return result
 
 
-def index(db, start_block=None, max_blocks=100, call=rpc_result):
+def scan_block(height, call):
+    """Fetch and validate one block without changing persistent state."""
+    block = call("eth_getBlockByNumber", [hex(height), True])
+    if not isinstance(block, dict) or quantity(block.get("number")) != height:
+        raise CoverageError(f"Missing/inconsistent block {height}")
+    block_hash = block.get("hash", "").lower()
+    parent_hash = block.get("parentHash", "").lower()
+    if len(block_hash) != 66 or len(parent_hash) != 66:
+        raise CoverageError(f"Invalid block hash at {height}")
+    txs = block.get("transactions")
+    if not isinstance(txs, list) or any(not isinstance(tx, dict) or not tx.get("hash") for tx in txs):
+        raise CoverageError(f"Incomplete transactions at {height}")
+    # callTracer is required: ordinary receipts cannot reveal factory CREATE/CREATE2.
+    traces = call("debug_traceBlockByNumber", [hex(height), {"tracer": "callTracer"}])
+    if not isinstance(traces, list) or len(traces) != len(txs):
+        raise CoverageError(f"Trace count mismatch at {height}")
+    try:
+        receipts = call("eth_getBlockReceipts", [hex(height)])
+    except RpcError as exc:
+        if "RPC error -32601" not in str(exc):
+            raise
+        receipts = [call("eth_getTransactionReceipt", [tx["hash"]]) for tx in txs]
+    if not isinstance(receipts, list) or len(receipts) != len(txs):
+        raise CoverageError(f"Receipt count mismatch at {height}")
+    creations = []
+    for tx, trace, receipt in zip(txs, traces, receipts):
+        tx_hash = tx["hash"].lower()
+        if not isinstance(trace, dict) or trace.get("txHash", "").lower() != tx_hash or "error" in trace:
+            raise CoverageError(f"Missing/mismatched trace for {tx_hash}")
+        tree = trace.get("result")
+        if not isinstance(tree, dict):
+            raise CoverageError(f"Malformed trace for {tx_hash}")
+        found = list(parse_creations(tree, tx_hash, height))
+        if (not isinstance(receipt, dict) or
+            receipt.get("transactionHash", "").lower() != tx_hash or
+            quantity(receipt.get("blockNumber")) != height or
+            receipt.get("blockHash", "").lower() != block_hash):
+            raise CoverageError(f"Invalid receipt for {tx_hash}")
+        status = quantity(receipt.get("status"))
+        if status not in (0, 1) or (status == 0 and found):
+            raise CoverageError(f"Trace/receipt status mismatch for {tx_hash}")
+        if tx.get("to") is None:
+            direct = [row for row in found if row[2] == "[]"]
+            if status == 1 and (len(direct) != 1 or
+                            direct[0][3] != address(receipt.get("contractAddress"))):
+                raise CoverageError(f"Direct creation not corroborated by trace: {tx_hash}")
+            if status == 0 and direct:
+                raise CoverageError(f"Reverted creation present in trace: {tx_hash}")
+        creations.extend(found)
+    # A reorg between block and trace requests must not produce a false proof.
+    confirmation = call("eth_getBlockByNumber", [hex(height), False])
+    if not isinstance(confirmation, dict) or confirmation.get("hash", "").lower() != block_hash:
+        raise CoverageError(f"Block changed during trace at {height}")
+    return height, block_hash, parent_hash, len(txs), creations
+
+
+def ordered_scans(start, stop, workers, call):
+    """Bound pending RPC work and yield completed proofs in block order."""
+    heights = iter(range(start, stop + 1))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        pending = {}
+
+        def submit_next():
+            try:
+                height = next(heights)
+            except StopIteration:
+                return
+            pending[height] = pool.submit(scan_block, height, call)
+
+        for _ in range(workers * 2):
+            submit_next()
+        for height in range(start, stop + 1):
+            future = pending.pop(height)
+            yield future.result()
+            submit_next()
+
+
+def index(db, start_block=None, max_blocks=100, call=rpc_result, workers=1):
     """Commit only verified blocks. Retry/restart resumes at the first missing height."""
-    if max_blocks < 1:
-        raise ValueError("max_blocks must be positive")
+    if max_blocks < 1 or workers < 1 or workers > 32:
+        raise ValueError("max_blocks must be positive and workers must be 1..32")
     if quantity(call("eth_chainId")) != CHAIN_ID:
         raise CoverageError("RPC chain ID mismatch")
     head = quantity(call("eth_blockNumber"))
@@ -113,57 +191,14 @@ def index(db, start_block=None, max_blocks=100, call=rpc_result):
     next_block = last[0] + 1 if last else first_block
     target = min(safe_head, next_block + max_blocks - 1)
     processed = 0
-    for height in range(next_block, target + 1):
-        block = call("eth_getBlockByNumber", [hex(height), True])
-        if not isinstance(block, dict) or quantity(block.get("number")) != height:
-            raise CoverageError(f"Missing/inconsistent block {height}")
-        block_hash = block.get("hash", "").lower()
-        parent_hash = block.get("parentHash", "").lower()
-        if len(block_hash) != 66 or len(parent_hash) != 66:
-            raise CoverageError(f"Invalid block hash at {height}")
+    for height, block_hash, parent_hash, tx_count, creations in ordered_scans(
+            next_block, target, workers, call):
         if last and parent_hash != last[1]:
             raise CoverageError(f"Non-contiguous parent hash at {height}")
-        txs = block.get("transactions")
-        if not isinstance(txs, list) or any(not isinstance(tx, dict) or not tx.get("hash") for tx in txs):
-            raise CoverageError(f"Incomplete transactions at {height}")
-        # callTracer is required: ordinary receipts cannot reveal factory CREATE/CREATE2.
-        traces = call("debug_traceBlockByNumber", [hex(height), {"tracer": "callTracer"}])
-        if not isinstance(traces, list) or len(traces) != len(txs):
-            raise CoverageError(f"Trace count mismatch at {height}")
-        creations = []
-        for tx, trace in zip(txs, traces):
-            tx_hash = tx["hash"].lower()
-            if not isinstance(trace, dict) or trace.get("txHash", "").lower() != tx_hash or "error" in trace:
-                raise CoverageError(f"Missing/mismatched trace for {tx_hash}")
-            tree = trace.get("result")
-            if not isinstance(tree, dict):
-                raise CoverageError(f"Malformed trace for {tx_hash}")
-            found = list(parse_creations(tree, tx_hash, height))
-            receipt = call("eth_getTransactionReceipt", [tx["hash"]])
-            if (not isinstance(receipt, dict) or
-                receipt.get("transactionHash", "").lower() != tx_hash or
-                quantity(receipt.get("blockNumber")) != height or
-                receipt.get("blockHash", "").lower() != block_hash):
-                raise CoverageError(f"Invalid receipt for {tx_hash}")
-            status = quantity(receipt.get("status"))
-            if status not in (0, 1) or (status == 0 and found):
-                raise CoverageError(f"Trace/receipt status mismatch for {tx_hash}")
-            if tx.get("to") is None:
-                direct = [row for row in found if row[2] == "[]"]
-                if status == 1 and (len(direct) != 1 or
-                                direct[0][3] != address(receipt.get("contractAddress"))):
-                    raise CoverageError(f"Direct creation not corroborated by trace: {tx_hash}")
-                if status == 0 and direct:
-                    raise CoverageError(f"Reverted creation present in trace: {tx_hash}")
-            creations.extend(found)
-        # A reorg between block and trace requests must not produce a false proof.
-        confirmation = call("eth_getBlockByNumber", [hex(height), False])
-        if not isinstance(confirmation, dict) or confirmation.get("hash", "").lower() != block_hash:
-            raise CoverageError(f"Block changed during trace at {height}")
         with db:
             db.executemany("INSERT INTO deployments VALUES (?, ?, ?, ?, ?, ?)", creations)
             db.execute("INSERT INTO coverage VALUES (?, ?, ?, ?, ?, ?)",
-                       (height, block_hash, parent_hash, len(txs), len(creations),
+                       (height, block_hash, parent_hash, tx_count, len(creations),
                         dt.datetime.now(dt.timezone.utc).isoformat()))
         last = (height, block_hash)
         processed += 1
@@ -183,6 +218,7 @@ def main():
     parser.add_argument("--database", type=Path, required=True)
     parser.add_argument("--start-block", type=int)
     parser.add_argument("--max-blocks", type=int, default=100)
+    parser.add_argument("--workers", type=int, default=1, help="concurrent block verification (1..32)")
     parser.add_argument("--follow", action="store_true", help="continue processing new safe blocks")
     parser.add_argument("--poll-seconds", type=float, default=2)
     args = parser.parse_args()
@@ -192,7 +228,7 @@ def main():
         if args.poll_seconds <= 0:
             parser.error("--poll-seconds must be positive")
         while True:
-            report = index(db, args.start_block, args.max_blocks)
+            report = index(db, args.start_block, args.max_blocks, workers=args.workers)
             print(json.dumps(report), flush=True)
             if not args.follow:
                 break

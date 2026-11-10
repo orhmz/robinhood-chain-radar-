@@ -3,28 +3,8 @@ import argparse
 import json
 import os
 import sys
-import urllib.error
-import urllib.request
 
-DEFAULT_RPC = "https://rpc.mainnet.chain.robinhood.com"
-
-
-def call(method, params=None, opener=urllib.request.urlopen):
-    url = os.getenv("ROBINHOOD_RPC_URL", DEFAULT_RPC)
-    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method,
-                       "params": params or []}).encode()
-    request = urllib.request.Request(url, data=body, headers={
-        "Content-Type": "application/json", "Accept": "application/json",
-        "User-Agent": "Robinhood-Chain-Data-Health/1.1",
-    })
-    with opener(request, timeout=25) as response:
-        payload = json.load(response)
-    if not isinstance(payload, dict) or payload.get("error"):
-        error = payload.get("error", {}) if isinstance(payload, dict) else {}
-        raise RuntimeError(f"{method}: RPC error {error.get('code')}: {error.get('message')}")
-    if payload.get("result") is None:
-        raise RuntimeError(f"{method}: missing RPC result")
-    return payload["result"]
+from radar.rpc_client import RpcError, call
 
 
 def probe(block=None, rpc=call):
@@ -53,7 +33,7 @@ def probe(block=None, rpc=call):
                 raise RuntimeError("trace does not match transaction list")
         report.update({"trace_supported": True, "checked_block": height,
                        "transaction_count": len(hashes), "head": head})
-    except (RuntimeError, ValueError, TypeError, urllib.error.URLError, TimeoutError) as exc:
+    except (RpcError, RuntimeError, ValueError, TypeError) as exc:
         report["error"] = str(exc)
     return report
 

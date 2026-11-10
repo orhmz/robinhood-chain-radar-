@@ -13,6 +13,7 @@ TX1 = "0x" + "1" * 64
 TX2 = "0x" + "2" * 64
 DIRECT = "0x" + "3" * 40
 FACTORY = "0x" + "4" * 40
+NEXT_HASH = "0x" + "c" * 64
 
 
 def fixture_call(method, params=None):
@@ -32,6 +33,8 @@ def fixture_call(method, params=None):
                 {"type": "CREATE2", "to": FACTORY},
                 {"type": "CREATE", "to": DIRECT, "error": "reverted"}]}}
         ]
+    if method == "eth_getBlockReceipts":
+        return [fixture_call("eth_getTransactionReceipt", [tx]) for tx in (TX1, TX2)]
     if method == "eth_getTransactionReceipt":
         tx_hash = params[0]
         return {"transactionHash": tx_hash, "blockNumber": hex(10),
@@ -88,8 +91,8 @@ class IndexerTests(unittest.TestCase):
     def test_direct_receipt_mismatch_fails(self):
         def bad_receipt(method, params=None):
             result = fixture_call(method, params)
-            if method == "eth_getTransactionReceipt" and params[0] == TX1:
-                return {**result, "contractAddress": FACTORY}
+            if method == "eth_getBlockReceipts":
+                return [{**result[0], "contractAddress": FACTORY}, result[1]]
             return result
         with self.assertRaises(CoverageError):
             index(self.db, start_block=10, call=bad_receipt)
@@ -98,12 +101,46 @@ class IndexerTests(unittest.TestCase):
     def test_reverted_factory_receipt_cannot_create(self):
         def reverted(method, params=None):
             result = fixture_call(method, params)
-            if method == "eth_getTransactionReceipt" and params[0] == TX2:
-                return {**result, "status": "0x0"}
+            if method == "eth_getBlockReceipts":
+                return [result[0], {**result[1], "status": "0x0"}]
             return result
         with self.assertRaises(CoverageError):
             index(self.db, start_block=10, call=reverted)
         self.assertEqual(self.db.execute("SELECT count(*) FROM coverage").fetchone()[0], 0)
+
+    def test_partial_block_receipts_never_commit(self):
+        def incomplete(method, params=None):
+            result = fixture_call(method, params)
+            return result[:1] if method == "eth_getBlockReceipts" else result
+        with self.assertRaises(CoverageError):
+            index(self.db, start_block=10, call=incomplete)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM coverage").fetchone()[0], 0)
+
+    def test_parallel_scans_commit_only_in_height_order(self):
+        def two_blocks(method, params=None):
+            if method == "eth_blockNumber":
+                return hex(17)  # safe head = 11
+            if params and params[0] == hex(11):
+                if method == "eth_getBlockByNumber":
+                    return ({"number": hex(11), "hash": NEXT_HASH,
+                             "parentHash": BLOCK_HASH, "transactions": []}
+                            if params[1] is True else {"hash": NEXT_HASH})
+                if method in ("debug_traceBlockByNumber", "eth_getBlockReceipts"):
+                    return []
+            return fixture_call(method, params)
+
+        def bad_first(method, params=None):
+            if method == "debug_traceBlockByNumber" and params[0] == hex(10):
+                return []
+            return two_blocks(method, params)
+
+        with self.assertRaises(CoverageError):
+            index(self.db, start_block=10, max_blocks=2, workers=2, call=bad_first)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM coverage").fetchone()[0], 0)
+        report = index(self.db, start_block=10, max_blocks=2, workers=2, call=two_blocks)
+        self.assertEqual(report["last_verified_block"], 11)
+        self.assertEqual(self.db.execute("SELECT height FROM coverage ORDER BY height").fetchall(),
+                         [(10,), (11,)])
 
     def test_block_change_during_trace_stops_commit(self):
         reads = 0
