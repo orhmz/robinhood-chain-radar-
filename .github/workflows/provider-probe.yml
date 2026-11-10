@@ -25,6 +25,29 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Classify endpoint configuration without printing credentials
+        run: |
+          python - <<'PY'
+          import os
+          from urllib.parse import urlsplit
+
+          url = os.getenv("ROBINHOOD_RPC_URL", "")
+          try:
+              parsed = urlsplit(url)
+              host = parsed.hostname or ""
+              kind = ("chainstack_rpc" if host == "robinhood-mainnet.core.chainstack.com"
+                      else "chainstack_console" if host == "console.chainstack.com"
+                      else "other")
+              print("endpoint_kind:", kind)
+              print("https_endpoint:", parsed.scheme == "https")
+              print("access_path_present:", bool(parsed.path.strip("/")))
+              print("basic_credentials_present:", bool(os.getenv("ROBINHOOD_RPC_BASIC_USER") and
+                                                       os.getenv("ROBINHOOD_RPC_BASIC_PASSWORD")))
+              print("header_token_present:", bool(os.getenv("ROBINHOOD_RPC_BEARER_TOKEN") or
+                                                    os.getenv("ROBINHOOD_RPC_X_TOKEN")))
+          except ValueError:
+              print("endpoint_kind: invalid_url")
+          PY
       - name: Probe finalized recent block
         run: python -m radar.probe
       - name: Probe historical block with known factory deployment
