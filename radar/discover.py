@@ -9,7 +9,8 @@ from radar.scan import rpc, utc_now
 
 OUT = Path("out")
 OUT.mkdir(exist_ok=True)
-SAMPLE_BLOCKS = min(max(int(os.getenv("SAMPLE_BLOCKS", "8")), 1), 20)
+SAMPLE_BLOCKS = min(max(int(os.getenv("SAMPLE_BLOCKS", "12")), 1), 20)
+CHECKPOINT = Path("discovery_checkpoint.json")
 
 def main():
     result = {
@@ -28,8 +29,19 @@ def main():
         head_hex, _ = rpc("eth_blockNumber")
         head = int(head_hex, 16)
         # Wait for six confirmations, so latest/reorg-sensitive blocks are excluded.
-        end = head - 6
-        start = end - SAMPLE_BLOCKS + 1
+        safe_head = head - 6
+        checkpoint = json.loads(CHECKPOINT.read_text()) if CHECKPOINT.exists() else {}
+        prior_end = checkpoint.get("last_scanned_block")
+        if prior_end is None:
+            end = safe_head
+            start = end - SAMPLE_BLOCKS + 1
+        else:
+            start = int(prior_end) + 1
+            end = min(start + SAMPLE_BLOCKS - 1, safe_head)
+            if start > safe_head:
+                result["status"] = "caught_up_no_new_finalized_blocks"
+                result["coverage"] = {"last_scanned_block": int(prior_end), "safe_head": safe_head, "chain_wide_coverage": False}
+                return
         if start < 0:
             raise RuntimeError("Chain too short")
         for height in range(start, end + 1):
@@ -70,10 +82,20 @@ def main():
             "blocks_verified": len(result["blocks"]),
             "contiguous": True,
             "limited_to": "top-level contract creation transactions only",
-            "historical_gap_before_start": True,
+            "historical_gap_before_bootstrap": True,
+            "unscanned_finalized_blocks_after_end": safe_head - end,
             "gap_after_end_to_head": head - end,
+            "chain_wide_coverage": False,
         }
-        result["status"] = "sample_complete_not_exhaustive"
+        result["status"] = "incremental_partial_chain_coverage"
+        CHECKPOINT.write_text(json.dumps({
+            "chain_id": 4663,
+            "last_scanned_block": end,
+            "last_scanned_block_hash": result["blocks"][-1]["hash"],
+            "updated_at_utc": utc_now().isoformat(),
+            "historical_gap_before_bootstrap": True,
+            "coverage_type": "top_level_contract_creation_only",
+        }, indent=2) + "\\n")
     except Exception as exc:
         result["errors"].append(str(exc))
     finally:
@@ -84,7 +106,7 @@ def main():
             "deployments": len(result["deployments"]),
             "errors": result["errors"],
         }, ensure_ascii=False))
-    if result["status"] != "sample_complete_not_exhaustive":
+    if result["status"] not in ("incremental_partial_chain_coverage", "caught_up_no_new_finalized_blocks"):
         sys.exit(1)
 
 if __name__ == "__main__":
