@@ -1,0 +1,29 @@
+name: Robinhood trace RPC probe
+on:
+  push:
+    branches:
+      - feat/verified-indexer
+    paths:
+      - .github/workflows/rpc-probe.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    env:
+      ROBINHOOD_RPC_URL: ${{ secrets.ROBINHOOD_RPC_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify current and historical trace access
+        run: |
+          if [ -z "$ROBINHOOD_RPC_URL" ]; then
+            echo 'ROBINHOOD_RPC_URL secret is missing; trace capability was not tested.'
+            exit 1
+          fi
+          python -m radar.probe
+          python -m radar.probe --block 111009151
