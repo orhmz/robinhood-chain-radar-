@@ -84,12 +84,6 @@ def main():
         if prior is not None and number < int(prior):
             raise ValueError("Indexed head regressed relative to saved observation")
         report["head"] = {"number": number, "timestamp_utc": stamp.isoformat()}
-        report["sources"].append({
-            "url": url,
-            "accessed_at_utc": utc_now().isoformat(),
-            "data_end_utc": stamp.isoformat(),
-            "scope": "latest indexed block sample only",
-        })
         try:
             feed, feed_url = fetch("/api/v2/smart-contracts", {"filter": "verified"})
             entries = feed.get("items") if isinstance(feed, dict) else None
