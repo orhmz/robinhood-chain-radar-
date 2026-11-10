@@ -34,11 +34,11 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
       - name: Save observed head (not coverage)
-        if: steps.scan.outcome == 'success'
+        if: steps.scan.outcome == 'success' && steps.discover.outcome == 'success'
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add state.json
+          git add state.json discovery_checkpoint.json
           if ! git diff --cached --quiet; then
             git commit -m 'Record Robinhood indexed head observation [skip ci]'
             git pull --rebase origin main
