@@ -21,12 +21,16 @@ jobs:
         id: scan
         continue-on-error: true
         run: python -m radar.scan
+      - name: Verify bounded contract deployment sample
+        id: discover
+        continue-on-error: true
+        run: python -m radar.discover
       - name: Upload diagnostic report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: robinhood-data-health-${{ github.run_id }}
-          path: out/status.json
+          path: out/*.json
           if-no-files-found: warn
           retention-days: 30
       - name: Save observed head (not coverage)
@@ -41,5 +45,5 @@ jobs:
             git push origin HEAD:main
           fi
       - name: Fail if data access failed
-        if: steps.scan.outcome != 'success'
+        if: steps.scan.outcome != 'success' || steps.discover.outcome != 'success'
         run: exit 1
