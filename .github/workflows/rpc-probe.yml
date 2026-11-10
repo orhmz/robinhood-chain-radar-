@@ -25,5 +25,16 @@ jobs:
             echo 'ROBINHOOD_RPC_URL secret is missing; trace capability was not tested.'
             exit 1
           fi
+          python - <<'PY'
+          import json
+          import os
+          from urllib.parse import urlsplit
+          endpoint = urlsplit(os.environ['ROBINHOOD_RPC_URL'])
+          print(json.dumps({
+              'endpoint_is_https': endpoint.scheme == 'https',
+              'host_is_chainstack_mainnet': endpoint.hostname == 'robinhood-mainnet.core.chainstack.com',
+              'has_endpoint_id_path': bool(endpoint.path.strip('/')),
+          }))
+          PY
           python -m radar.probe
           python -m radar.probe --block 111009151
