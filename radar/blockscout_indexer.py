@@ -54,11 +54,13 @@ def creation(item, start, end):
     if not isinstance(item, dict) or item.get("type") != "contract_creation":
         raise SourceError("Creation filter returned an unexpected item")
     status = item.get("status")
-    if status in ("error", "failed"):
-        return None  # Failed creation attempts do not deploy contracts.
-    if status != "success":
-        raise SourceError(f"Unrecognized creation status: {status!r}")
     created = item.get("created_contract")
+    if status != "success":
+        if not isinstance(status, str) or not status:
+            raise SourceError("Creation item lacks a valid execution status")
+        if created is None:
+            return None  # Blockscout includes reverted attempts in the filter.
+        raise SourceError("Non-success creation item has a created contract")
     if not isinstance(created, dict):
         raise SourceError("Creation item lacks a created contract")
     transaction = hex_value(item.get("hash"), 66, "transaction hash")
