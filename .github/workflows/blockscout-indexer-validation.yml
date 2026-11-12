@@ -28,40 +28,40 @@ jobs:
       - name: Exhaust a known Robinhood interval
         run: |
           python -m radar.blockscout_indexer \
-            --database out/source-validation.sqlite --chain-id 4663 \
+            --database out/known-validation.sqlite --chain-id 4663 \
             --bootstrap-utc 2026-11-10T16:08:20Z --window-seconds 15 \
             --max-windows 1 --report out/robinhood-source.json
           python - <<'PY'
           import sqlite3
-          db = sqlite3.connect("out/source-validation.sqlite")
+          db = sqlite3.connect("out/known-validation.sqlite")
           count = db.execute("""SELECT count(*) FROM source_creations
               WHERE chain_id=4663 AND block_number=111009151
               AND internal_index>=0""").fetchone()[0]
           assert count >= 1, "Known factory creation absent from completed interval"
           PY
-      - name: Exhaust a bounded Arc interval
+      - name: Exhaust six bounded Arc intervals
         run: |
           python -m radar.blockscout_indexer \
             --database out/source-validation.sqlite --chain-id 5042 \
             --bootstrap-utc 2026-11-12T17:36:55Z --window-seconds 300 \
-            --max-windows 1 --report out/arc-source.json
-      - name: Exhaust and replay a paginated Robinhood interval
+            --max-windows 6 --report out/arc-source.json
+      - name: Exhaust and replay six bounded Robinhood intervals
         run: |
           python -m radar.blockscout_indexer \
-            --database out/paginated-validation.sqlite --chain-id 4663 \
-            --bootstrap-utc 2026-11-12T16:54:06Z --window-seconds 3600 \
-            --max-windows 1 --report out/robinhood-paginated-source.json
+            --database out/source-validation.sqlite --chain-id 4663 \
+            --bootstrap-utc 2026-11-12T17:36:55Z --window-seconds 300 \
+            --max-windows 6 --report out/robinhood-batch-source.json
           python - <<'PY'
           import sqlite3
-          db = sqlite3.connect("out/paginated-validation.sqlite")
-          pages = db.execute("""SELECT page_count FROM source_windows
-              WHERE chain_id=4663""").fetchone()[0]
-          assert pages >= 2, "Expected a real multi-page interval"
+          db = sqlite3.connect("out/source-validation.sqlite")
+          count = db.execute("""SELECT count(*) FROM source_windows
+              WHERE chain_id=4663 AND start_utc>='2026-11-12T17:36:55Z'""").fetchone()[0]
+          assert count == 6, "Expected six complete Robinhood intervals"
           PY
           python -m radar.blockscout_indexer \
-            --database out/paginated-validation.sqlite --chain-id 4663 \
-            --bootstrap-utc 2026-11-12T16:54:06Z --window-seconds 3600 \
-            --max-windows 1 --report out/robinhood-replay-source.json
+            --database out/source-validation.sqlite --chain-id 4663 \
+            --bootstrap-utc 2026-11-12T17:36:55Z --window-seconds 300 \
+            --max-windows 0 --report out/robinhood-replay-source.json
       - name: Upload source diagnostics
         if: always()
         uses: actions/upload-artifact@v4

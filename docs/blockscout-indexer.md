@@ -60,7 +60,8 @@ coverage, attribute projects from first-party evidence, and run a durable
 checkpoint and outbox service. The existing offline 100-point assessment
 remains the only scoring path.
 
-The large-interval PR test initially encountered one Blockscout timeout.
-Timeouts now receive bounded retries; exhaustion still fails without advancing
-the checkpoint. A repeated timeout is a source-capacity problem, not proof of
-an empty interval.
+The one-hour PR integration query repeatedly timed out at Blockscout, even
+with bounded retries. Five-minute intervals are the tested default. Timeout
+exhaustion fails without advancing the checkpoint; it is a source-capacity
+problem, not proof of an empty interval. `--max-windows 0` only replays recent
+completed intervals and does not advance the checkpoint.

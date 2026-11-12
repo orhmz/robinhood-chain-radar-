@@ -142,6 +142,17 @@ class BlockscoutIndexerTests(unittest.TestCase):
         self.assertEqual(self.db.execute("SELECT next_start_utc FROM streams").fetchone()[0],
                          "2026-11-10T16:08:30Z")
 
+    def test_verify_only_replays_without_advancing(self):
+        page = {"items": [item(1)], "next_page_params": None}
+        first, _ = self.client([page])
+        run(self.db, first, chain_id=4663, bootstrap=START, window_seconds=10,
+            max_windows=1, now=NOW)
+        second, fake = self.client([page])
+        report = run(self.db, second, chain_id=4663, bootstrap=START,
+                     window_seconds=10, max_windows=0, now=NOW)
+        self.assertEqual((report["windows_committed"], len(fake.calls)), (0, 1))
+        self.assertEqual(report["next_start_utc"], "2026-11-10T16:08:30Z")
+
     def test_persisted_gap_is_rejected(self):
         first, _ = self.client([{"items": [], "next_page_params": None}])
         run(self.db, first, chain_id=5042, bootstrap=START, window_seconds=10,

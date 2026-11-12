@@ -191,7 +191,7 @@ def check_contiguous(db, chain_id, bootstrap, next_start, window_seconds):
 
 def run(db, client, *, chain_id, bootstrap, window_seconds=300, max_windows=12,
         max_pages=1000, recheck_windows=12, now=None):
-    if chain_id not in CHAINS or window_seconds < 1 or max_windows < 1 or (
+    if chain_id not in CHAINS or window_seconds < 1 or max_windows < 0 or (
             max_pages < 1 or recheck_windows < 0):
         raise ValueError("Invalid chain or indexing limits")
     bootstrap = parse_time(stamp(bootstrap))
