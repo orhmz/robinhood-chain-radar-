@@ -53,8 +53,11 @@ def hex_value(value, length, label):
 def creation(item, start, end):
     if not isinstance(item, dict) or item.get("type") != "contract_creation":
         raise SourceError("Creation filter returned an unexpected item")
-    if item.get("status") != "success":
-        raise SourceError("Creation item lacks success evidence")
+    status = item.get("status")
+    if status in ("error", "failed"):
+        return None  # Failed creation attempts do not deploy contracts.
+    if status != "success":
+        raise SourceError(f"Unrecognized creation status: {status!r}")
     created = item.get("created_contract")
     if not isinstance(created, dict):
         raise SourceError("Creation item lacks a created contract")
@@ -118,6 +121,8 @@ def read_window(client, chain_id, start, end, *, max_pages=1000):
         pages += 1
         for item in payload["items"]:
             row = creation(item, start, end)
+            if row is None:
+                continue
             identity = row[:3]
             if identity in rows:
                 raise SourceError("Duplicate creation within one interval")

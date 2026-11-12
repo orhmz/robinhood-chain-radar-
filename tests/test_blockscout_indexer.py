@@ -96,6 +96,24 @@ class BlockscoutIndexerTests(unittest.TestCase):
                 with self.assertRaises(SourceError):
                     read_window(client, 4663, START, START + dt.timedelta(seconds=10))
 
+    def test_failed_creation_attempt_is_not_a_deployment(self):
+        failed = item(1)
+        failed["status"] = "error"
+        failed["created_contract"] = None
+        client, _ = self.client([
+            {"items": [failed, item(2)], "next_page_params": None}
+        ])
+        rows, pages, _ = read_window(
+            client, 4663, START, START + dt.timedelta(seconds=10))
+        self.assertEqual((len(rows), pages), (1, 1))
+        unknown = item(3)
+        unknown["status"] = "unknown"
+        client, _ = self.client([
+            {"items": [unknown], "next_page_params": None}
+        ])
+        with self.assertRaisesRegex(SourceError, "Unrecognized creation status"):
+            read_window(client, 4663, START, START + dt.timedelta(seconds=10))
+
     def test_contiguous_windows_dedupe_shared_boundary(self):
         page = {"items": [item(1, timestamp="2026-11-10T16:08:25Z")],
                 "next_page_params": None}
