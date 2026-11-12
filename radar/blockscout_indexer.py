@@ -5,6 +5,7 @@ It never sends notifications or advances the existing RPC discovery checkpoint.
 """
 
 import argparse
+from contextlib import closing
 import datetime as dt
 import hashlib
 import json
@@ -147,8 +148,11 @@ def read_window(client, chain_id, start, end, *, max_pages=1000):
             raise SourceError("Page budget exhausted before interval completion")
         params = {**base, **cursor}
     ordered = sorted(rows.values())
-    digest = hashlib.sha256(json.dumps(ordered, separators=(",", ":")).encode()).hexdigest()
-    return ordered, pages, digest
+    return ordered, pages, rows_digest(ordered)
+
+
+def rows_digest(rows):
+    return hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()
 
 
 def open_store(path):
@@ -171,6 +175,15 @@ def open_store(path):
             PRIMARY KEY (chain_id, transaction_hash, internal_index, address));
         CREATE INDEX IF NOT EXISTS source_creations_address
             ON source_creations (chain_id, address);
+        CREATE TABLE IF NOT EXISTS source_window_creations (
+            chain_id INTEGER NOT NULL, start_utc TEXT NOT NULL,
+            transaction_hash TEXT NOT NULL, internal_index INTEGER NOT NULL,
+            address TEXT NOT NULL,
+            PRIMARY KEY (chain_id, start_utc, transaction_hash, internal_index, address),
+            FOREIGN KEY (chain_id, start_utc)
+                REFERENCES source_windows (chain_id, start_utc),
+            FOREIGN KEY (chain_id, transaction_hash, internal_index, address)
+                REFERENCES source_creations (chain_id, transaction_hash, internal_index, address));
     """)
     return db
 
@@ -214,14 +227,32 @@ def run(db, client, *, chain_id, bootstrap, window_seconds=300, max_windows=12,
     recent = db.execute("""SELECT start_utc, end_utc, creation_count, digest
         FROM source_windows WHERE chain_id=? ORDER BY start_utc DESC LIMIT ?""",
         (chain_id, recheck_windows)).fetchall()
+    recheck_pages = 0
     for start_text, end_text, count, digest in recent:
-        rows, _, observed_digest = read_window(
+        stored_rows = db.execute("""SELECT creation.transaction_hash,
+            creation.internal_index, creation.address, creation.block_number,
+            creation.timestamp_utc
+            FROM source_window_creations membership
+            JOIN source_creations creation
+              ON creation.chain_id=membership.chain_id
+             AND creation.transaction_hash=membership.transaction_hash
+             AND creation.internal_index=membership.internal_index
+             AND creation.address=membership.address
+            WHERE membership.chain_id=? AND membership.start_utc=?
+            ORDER BY creation.transaction_hash, creation.internal_index,
+                     creation.address, creation.block_number, creation.timestamp_utc""",
+            (chain_id, start_text)).fetchall()
+        if len(stored_rows) != count or rows_digest(stored_rows) != digest:
+            raise SourceError(f"Stored creations disagree with interval {start_text}")
+        rows, pages, observed_digest = read_window(
             client, chain_id, parse_time(start_text), parse_time(end_text), max_pages=max_pages)
+        recheck_pages += pages
         if len(rows) != count or observed_digest != digest:
             raise SourceError(f"Indexed source changed in completed interval {start_text}")
 
     completed = 0
     records = 0
+    fetched_pages = 0
     delta = dt.timedelta(seconds=window_seconds)
     while completed < max_windows and next_start + delta <= safe_cutoff:
         end = next_start + delta
@@ -240,16 +271,22 @@ def run(db, client, *, chain_id, bootstrap, window_seconds=300, max_windows=12,
             db.execute("INSERT INTO source_windows VALUES (?, ?, ?, ?, ?, ?, ?)",
                        (chain_id, stamp(next_start), stamp(end), pages, len(rows), digest,
                         stamp(dt.datetime.now(UTC))))
+            db.executemany("""INSERT INTO source_window_creations
+                VALUES (?, ?, ?, ?, ?)""",
+                [(chain_id, stamp(next_start), transaction, internal, address)
+                 for transaction, internal, address, _, _ in rows])
             db.execute("UPDATE streams SET next_start_utc=? WHERE chain_id=?",
                        (stamp(end), chain_id))
         next_start = end
         completed += 1
         records += len(rows)
+        fetched_pages += pages
     return {
         "chain_id": chain_id, "status": "source_windows_verified",
         "bootstrap_utc": stamp(bootstrap), "next_start_utc": stamp(next_start),
         "safe_cutoff_utc": stamp(safe_cutoff), "windows_committed": completed,
-        "creation_rows_observed": records,
+        "creation_rows_observed": records, "pages_fetched": fetched_pages,
+        "rechecked_windows": len(recent), "recheck_pages_fetched": recheck_pages,
         "unscanned_safe_seconds": max(0, int((safe_cutoff - next_start).total_seconds())),
         "source_windows_contiguous_from_bootstrap": True,
         "source_history_before_bootstrap_verified": False,
@@ -272,7 +309,7 @@ def main():
     try:
         client = Client(os.getenv("BLOCKSCOUT_API_KEY"))
         args.database.parent.mkdir(parents=True, exist_ok=True)
-        with open_store(args.database) as db:
+        with closing(open_store(args.database)) as db:
             report = run(db, client, chain_id=args.chain_id,
                          bootstrap=parse_time(args.bootstrap_utc),
                          window_seconds=args.window_seconds,

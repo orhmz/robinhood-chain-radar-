@@ -19,8 +19,10 @@ the existing scheduled radar, RPC checkpoint, assessment ledger, or alerts.
   Explicitly recognized failure statuses are skipped regardless of address;
   unknown statuses fail closed. Only successful creations enter the index.
 - On restart it checks persisted interval adjacency and replays the most recent
-  completed intervals. Changed source rows stop the worker before new coverage
-  is committed. A 30-minute lag avoids the newest explorer data. Neither this
+  completed intervals. Per-window membership also checks that stored creation
+  rows agree with each window digest. Changed source or stored rows stop the
+  worker before new coverage is committed. A 30-minute lag avoids the newest
+  explorer data. Neither this
   lag nor a successful page response proves that Blockscout has finished
   indexing the underlying chain.
 - The report separates `source_windows_contiguous_from_bootstrap` from

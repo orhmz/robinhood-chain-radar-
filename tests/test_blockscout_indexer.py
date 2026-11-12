@@ -151,7 +151,21 @@ class BlockscoutIndexerTests(unittest.TestCase):
         report = run(self.db, second, chain_id=4663, bootstrap=START,
                      window_seconds=10, max_windows=0, now=NOW)
         self.assertEqual((report["windows_committed"], len(fake.calls)), (0, 1))
+        self.assertEqual((report["rechecked_windows"], report["recheck_pages_fetched"]), (1, 1))
         self.assertEqual(report["next_start_utc"], "2026-11-10T16:08:30Z")
+
+    def test_missing_stored_creation_is_not_silently_rechecked(self):
+        page = {"items": [item(1)], "next_page_params": None}
+        first, _ = self.client([page])
+        run(self.db, first, chain_id=4663, bootstrap=START, window_seconds=10,
+            max_windows=1, now=NOW)
+        self.db.execute("DELETE FROM source_window_creations")
+        self.db.commit()
+        second, fake = self.client([])
+        with self.assertRaisesRegex(SourceError, "Stored creations disagree"):
+            run(self.db, second, chain_id=4663, bootstrap=START,
+                window_seconds=10, max_windows=0, now=NOW)
+        self.assertEqual(fake.calls, [])
 
     def test_persisted_gap_is_rejected(self):
         first, _ = self.client([{"items": [], "next_page_params": None}])
