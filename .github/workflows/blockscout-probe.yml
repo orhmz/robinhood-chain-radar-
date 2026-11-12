@@ -1,0 +1,41 @@
+name: Blockscout free API creation-source probe
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/blockscout-probe.yml'
+      - 'radar/blockscout_probe.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/blockscout-probe.yml'
+      - 'radar/blockscout_probe.py'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      BLOCKSCOUT_API_KEY: ${{ secrets.BLOCKSCOUT_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check source validation rules
+        run: python -m unittest discover -s tests -q
+      - name: Probe Robinhood and Arc creation index
+        run: python -m radar.blockscout_probe
+      - name: Preserve diagnostic result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blockscout-source-probe
+          path: out/blockscout_probe.json
+          if-no-files-found: warn
+          retention-days: 30
