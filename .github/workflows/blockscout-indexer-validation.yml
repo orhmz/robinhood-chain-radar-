@@ -45,6 +45,23 @@ jobs:
             --database out/source-validation.sqlite --chain-id 5042 \
             --bootstrap-utc 2026-11-12T17:36:55Z --window-seconds 300 \
             --max-windows 1 --report out/arc-source.json
+      - name: Exhaust and replay a paginated Robinhood interval
+        run: |
+          python -m radar.blockscout_indexer \
+            --database out/paginated-validation.sqlite --chain-id 4663 \
+            --bootstrap-utc 2026-11-12T16:54:06Z --window-seconds 3600 \
+            --max-windows 1 --report out/robinhood-paginated-source.json
+          python - <<'PY'
+          import sqlite3
+          db = sqlite3.connect("out/paginated-validation.sqlite")
+          pages = db.execute("""SELECT page_count FROM source_windows
+              WHERE chain_id=4663""").fetchone()[0]
+          assert pages >= 2, "Expected a real multi-page interval"
+          PY
+          python -m radar.blockscout_indexer \
+            --database out/paginated-validation.sqlite --chain-id 4663 \
+            --bootstrap-utc 2026-11-12T16:54:06Z --window-seconds 3600 \
+            --max-windows 1 --report out/robinhood-replay-source.json
       - name: Upload source diagnostics
         if: always()
         uses: actions/upload-artifact@v4
