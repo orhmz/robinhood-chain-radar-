@@ -55,12 +55,12 @@ def creation(item, start, end):
         raise SourceError("Creation filter returned an unexpected item")
     status = item.get("status")
     created = item.get("created_contract")
+    if isinstance(status, str) and (
+            status in ("error", "failed", "out of gas") or
+            status.startswith("execution reverted")):
+        return None  # A reverted attempt is not a deployment, even with an address.
     if status != "success":
-        if not isinstance(status, str) or not status:
-            raise SourceError("Creation item lacks a valid execution status")
-        if created is None:
-            return None  # Blockscout includes reverted attempts in the filter.
-        raise SourceError("Non-success creation item has a created contract")
+        raise SourceError(f"Unrecognized creation status: {status!r}")
     if not isinstance(created, dict):
         raise SourceError("Creation item lacks a created contract")
     transaction = hex_value(item.get("hash"), 66, "transaction hash")

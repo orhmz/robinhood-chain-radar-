@@ -99,7 +99,7 @@ class BlockscoutIndexerTests(unittest.TestCase):
     def test_failed_creation_attempt_is_not_a_deployment(self):
         failed = item(1)
         failed["status"] = "execution reverted"
-        failed["created_contract"] = None
+        # Blockscout may still expose an attempted address on a reverted call.
         client, _ = self.client([
             {"items": [failed, item(2)], "next_page_params": None}
         ])
@@ -111,7 +111,7 @@ class BlockscoutIndexerTests(unittest.TestCase):
         client, _ = self.client([
             {"items": [unknown], "next_page_params": None}
         ])
-        with self.assertRaisesRegex(SourceError, "Non-success creation item"):
+        with self.assertRaisesRegex(SourceError, "Unrecognized creation status"):
             read_window(client, 4663, START, START + dt.timedelta(seconds=10))
 
     def test_contiguous_windows_dedupe_shared_boundary(self):
