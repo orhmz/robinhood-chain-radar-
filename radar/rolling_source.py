@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import sqlite3
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -92,22 +93,35 @@ def download_artifact(repo, token, state):
     headers = {"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json",
                "User-Agent": "rolling-blockscout-source/1.0"}
     try:
-        with urllib.request.urlopen(urllib.request.Request(root, headers=headers),
-                                    timeout=20) as response:
-            metadata = json.load(response)
+        for attempt in range(4):
+            try:
+                with urllib.request.urlopen(urllib.request.Request(root, headers=headers),
+                                            timeout=20) as response:
+                    metadata = json.load(response)
+                break
+            except urllib.error.HTTPError as error:
+                if error.code != 404 or attempt == 3:
+                    raise
+                time.sleep(2 ** attempt)
         if metadata.get("expired") or metadata.get("name") != (
                 f"blockscout-rolling-db-{state['artifact_run_id']}") or (
                 metadata.get("workflow_run", {}).get("id") != state["artifact_run_id"]):
             raise SourceError("Referenced rolling source artifact does not match state")
         opener = urllib.request.build_opener(NoAuthRedirect)
-        try:
-            opener.open(urllib.request.Request(root + "/zip", headers=headers), timeout=20)
-        except urllib.error.HTTPError as error:
-            if error.code not in (301, 302, 303, 307, 308):
-                raise
-            location = error.headers.get("Location")
-        else:
-            raise SourceError("GitHub artifact download did not return a signed URL")
+        for attempt in range(4):
+            try:
+                opener.open(urllib.request.Request(root + "/zip", headers=headers),
+                            timeout=20)
+            except urllib.error.HTTPError as error:
+                if error.code == 404 and attempt < 3:
+                    time.sleep(2 ** attempt)
+                    continue
+                if error.code not in (301, 302, 303, 307, 308):
+                    raise
+                location = error.headers.get("Location")
+                break
+            else:
+                raise SourceError("GitHub artifact download did not return a signed URL")
         parsed = urllib.parse.urlparse(location or "")
         if parsed.scheme != "https" or not parsed.hostname:
             raise SourceError("GitHub artifact redirect is not HTTPS")
@@ -116,7 +130,9 @@ def download_artifact(repo, token, state):
             blob = response.read(MAX_ARTIFACT_BYTES + 1)
     except SourceError:
         raise
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError,
+    except urllib.error.HTTPError as error:
+        raise SourceError(f"Cannot restore rolling source artifact: HTTP {error.code}") from None
+    except (urllib.error.URLError, TimeoutError, OSError,
             ValueError, TypeError) as error:
         raise SourceError(f"Cannot restore rolling source artifact ({type(error).__name__})") from None
     if len(blob) > MAX_ARTIFACT_BYTES:
