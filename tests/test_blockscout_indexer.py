@@ -107,11 +107,18 @@ class BlockscoutIndexerTests(unittest.TestCase):
             client, 4663, START, START + dt.timedelta(seconds=10))
         self.assertEqual((len(rows), pages), (1, 1))
         unknown = item(3)
-        unknown["status"] = "unknown"
+        unknown["status"] = "contract creation code storage out of gas"
         client, _ = self.client([
             {"items": [unknown], "next_page_params": None}
         ])
-        with self.assertRaisesRegex(SourceError, "Unrecognized creation status"):
+        rows, _, _ = read_window(client, 4663, START, START + dt.timedelta(seconds=10))
+        self.assertEqual(rows, [])
+        malformed = item(4)
+        malformed["status"] = ""
+        client, _ = self.client([
+            {"items": [malformed], "next_page_params": None}
+        ])
+        with self.assertRaisesRegex(SourceError, "lacks an execution status"):
             read_window(client, 4663, START, START + dt.timedelta(seconds=10))
 
     def test_contiguous_windows_dedupe_shared_boundary(self):
