@@ -46,6 +46,7 @@ jobs:
       - name: Verify GitHub artifact restore cycle
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          BLOCKSCOUT_API_KEY: ${{ secrets.BLOCKSCOUT_API_KEY }}
           ARTIFACT_ID: ${{ steps.database.outputs.artifact-id }}
         run: |
           python -m radar.rolling_source finalize \
@@ -58,11 +59,13 @@ jobs:
           state = load_state(Path("blockscout_service_state.json"))
           verify_database(Path("out/rolling-blockscout.sqlite"), state)
           PY
+          python -m radar.rolling_source scan \
+            --report out/pr-replay-report.json --max-windows 0
       - name: Preserve scoped report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: rolling-source-validation
-          path: out/pr-rolling-report.json
+          path: out/pr-*-report.json
           if-no-files-found: warn
           retention-days: 30

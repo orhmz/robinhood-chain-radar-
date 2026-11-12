@@ -160,7 +160,7 @@ def ingest(db_path, state, key, *, now=None, max_windows=288, retain_windows=RET
     if not key:
         raise SourceError("BLOCKSCOUT_API_KEY is missing")
     now = now or dt.datetime.now(UTC)
-    if max_windows < 1 or retain_windows < 12:
+    if max_windows < 0 or retain_windows < 12:
         raise ValueError("Invalid rolling source limits")
     client = Client(key)
     reports = {}
