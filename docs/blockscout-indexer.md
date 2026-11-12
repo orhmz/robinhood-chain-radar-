@@ -14,10 +14,10 @@ the existing scheduled radar, RPC checkpoint, assessment ledger, or alerts.
   repeated cursor, duplicate item, missing created address, unexpected type,
   page-budget exhaustion, or HTTP failure stops the run. The interval and its
   checkpoint are committed together only after the final page.
-- The filter can return failed creation attempts, including status text such
-  as `execution reverted`, sometimes with an attempted contract address.
-  Explicitly recognized failure statuses are skipped regardless of address;
-  unknown statuses fail closed. Only successful creations enter the index.
+- The filter can return failed creation attempts with arbitrary error text
+  (including `execution reverted` and code-storage out-of-gas), sometimes
+  with an attempted contract address. Only exact `success` enters the index;
+  nonempty error statuses are skipped and a missing status fails closed.
 - On restart it checks persisted interval adjacency and replays the most recent
   completed intervals. Per-window membership also checks that stored creation
   rows agree with each window digest. Changed source or stored rows stop the

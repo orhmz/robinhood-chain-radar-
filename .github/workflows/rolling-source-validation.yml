@@ -1,0 +1,71 @@
+name: Rolling source service validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/rolling-blockscout-source.yml'
+      - '.github/workflows/rolling-source-validation.yml'
+      - 'radar/rolling_source.py'
+      - 'radar/blockscout_indexer.py'
+      - 'tests/test_rolling_source.py'
+      - 'tests/test_blockscout_indexer.py'
+      - 'blockscout_service_state.json'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  validation:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit tests
+        run: python -m unittest discover -s tests -q
+      - name: Test bounded rolling ingestion with real source
+        env:
+          BLOCKSCOUT_API_KEY: ${{ secrets.BLOCKSCOUT_API_KEY }}
+        run: |
+          python -m radar.rolling_source restore
+          python -m radar.rolling_source scan \
+            --report out/pr-rolling-report.json --max-windows 24
+      - name: Upload validation database for exact restore
+        id: database
+        uses: actions/upload-artifact@v4
+        with:
+          name: blockscout-rolling-db-${{ github.run_id }}
+          path: out/rolling-blockscout.sqlite
+          if-no-files-found: error
+          retention-days: 2
+      - name: Verify GitHub artifact restore cycle
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BLOCKSCOUT_API_KEY: ${{ secrets.BLOCKSCOUT_API_KEY }}
+          ARTIFACT_ID: ${{ steps.database.outputs.artifact-id }}
+        run: |
+          python -m radar.rolling_source finalize \
+            --report out/pr-rolling-report.json --artifact-id "$ARTIFACT_ID"
+          rm out/rolling-blockscout.sqlite
+          python -m radar.rolling_source restore
+          python - <<'PY'
+          from pathlib import Path
+          from radar.rolling_source import load_state, verify_database
+          state = load_state(Path("blockscout_service_state.json"))
+          verify_database(Path("out/rolling-blockscout.sqlite"), state)
+          PY
+          python -m radar.rolling_source scan \
+            --report out/pr-replay-report.json --max-windows 0
+      - name: Preserve scoped report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rolling-source-validation
+          path: out/pr-*-report.json
+          if-no-files-found: warn
+          retention-days: 30

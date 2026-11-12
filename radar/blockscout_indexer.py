@@ -58,12 +58,10 @@ def creation(item, start, end):
         raise SourceError("Creation filter returned an unexpected item")
     status = item.get("status")
     created = item.get("created_contract")
-    if isinstance(status, str) and (
-            status in ("error", "failed", "out of gas") or
-            status.startswith("execution reverted")):
-        return None  # A reverted attempt is not a deployment, even with an address.
+    if not isinstance(status, str) or not status.strip():
+        raise SourceError("Creation item lacks an execution status")
     if status != "success":
-        raise SourceError(f"Unrecognized creation status: {status!r}")
+        return None  # Blockscout errors vary; attempted addresses are not deployments.
     if not isinstance(created, dict):
         raise SourceError("Creation item lacks a created contract")
     transaction = hex_value(item.get("hash"), 66, "transaction hash")
@@ -200,6 +198,37 @@ def check_contiguous(db, chain_id, bootstrap, next_start, window_seconds):
         expected = end
     if expected != next_start:
         raise SourceError("Source checkpoint disagrees with persisted windows")
+
+
+def prune_windows(db, chain_id, retain_windows):
+    """Keep a recent, explicitly scoped range in a rolling source database."""
+    if chain_id not in CHAINS or retain_windows < 1:
+        raise ValueError("Invalid rolling retention")
+    stream = db.execute("SELECT bootstrap_utc FROM streams WHERE chain_id=?",
+                        (chain_id,)).fetchone()
+    if stream is None:
+        raise SourceError("Cannot prune an uninitialized source stream")
+    oldest = db.execute("""SELECT start_utc FROM source_windows WHERE chain_id=?
+        ORDER BY start_utc DESC LIMIT 1 OFFSET ?""",
+        (chain_id, retain_windows - 1)).fetchone()
+    if oldest is None or oldest[0] <= stream[0]:
+        return stream[0]
+    boundary = oldest[0]
+    with db:
+        db.execute("DELETE FROM source_window_creations WHERE chain_id=? AND start_utc<?",
+                   (chain_id, boundary))
+        db.execute("DELETE FROM source_windows WHERE chain_id=? AND start_utc<?",
+                   (chain_id, boundary))
+        db.execute("""DELETE FROM source_creations
+            WHERE chain_id=? AND NOT EXISTS (
+                SELECT 1 FROM source_window_creations membership
+                WHERE membership.chain_id=source_creations.chain_id
+                  AND membership.transaction_hash=source_creations.transaction_hash
+                  AND membership.internal_index=source_creations.internal_index
+                  AND membership.address=source_creations.address)""", (chain_id,))
+        db.execute("UPDATE streams SET bootstrap_utc=? WHERE chain_id=?",
+                   (boundary, chain_id))
+    return boundary
 
 
 def run(db, client, *, chain_id, bootstrap, window_seconds=300, max_windows=12,

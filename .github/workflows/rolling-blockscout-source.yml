@@ -1,0 +1,63 @@
+name: Rolling Blockscout source coverage (no alerts)
+
+on:
+  schedule:
+    - cron: '37 */2 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: robinhood-data-health-main
+  cancel-in-progress: false
+
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check source checkpoint rules
+        run: python -m unittest discover -s tests -q
+      - name: Restore exact previous source checkpoint
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -m radar.rolling_source restore
+      - name: Advance both scoped source streams
+        env:
+          BLOCKSCOUT_API_KEY: ${{ secrets.BLOCKSCOUT_API_KEY }}
+        run: python -m radar.rolling_source scan
+      - name: Upload diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blockscout-rolling-report-${{ github.run_id }}
+          path: out/rolling-source-report.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Upload validated rolling database
+        id: database
+        uses: actions/upload-artifact@v4
+        with:
+          name: blockscout-rolling-db-${{ github.run_id }}
+          path: out/rolling-blockscout.sqlite
+          if-no-files-found: error
+          retention-days: 2
+      - name: Prepare durable checkpoint reference
+        env:
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          ARTIFACT_ID: ${{ steps.database.outputs.artifact-id }}
+        run: python -m radar.rolling_source finalize --artifact-id "$ARTIFACT_ID"
+      - name: Publish checkpoint reference
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add blockscout_service_state.json
+          git commit -m 'Record scoped Blockscout source checkpoint [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main

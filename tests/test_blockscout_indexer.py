@@ -4,7 +4,7 @@ import tempfile
 import unittest
 
 from radar.blockscout_indexer import (
-    Client, SourceError, check_contiguous, open_store, read_window, run,
+    Client, SourceError, check_contiguous, open_store, prune_windows, read_window, run,
 )
 
 
@@ -107,11 +107,18 @@ class BlockscoutIndexerTests(unittest.TestCase):
             client, 4663, START, START + dt.timedelta(seconds=10))
         self.assertEqual((len(rows), pages), (1, 1))
         unknown = item(3)
-        unknown["status"] = "unknown"
+        unknown["status"] = "contract creation code storage out of gas"
         client, _ = self.client([
             {"items": [unknown], "next_page_params": None}
         ])
-        with self.assertRaisesRegex(SourceError, "Unrecognized creation status"):
+        rows, _, _ = read_window(client, 4663, START, START + dt.timedelta(seconds=10))
+        self.assertEqual(rows, [])
+        malformed = item(4)
+        malformed["status"] = ""
+        client, _ = self.client([
+            {"items": [malformed], "next_page_params": None}
+        ])
+        with self.assertRaisesRegex(SourceError, "lacks an execution status"):
             read_window(client, 4663, START, START + dt.timedelta(seconds=10))
 
     def test_contiguous_windows_dedupe_shared_boundary(self):
@@ -166,6 +173,34 @@ class BlockscoutIndexerTests(unittest.TestCase):
             run(self.db, second, chain_id=4663, bootstrap=START,
                 window_seconds=10, max_windows=0, now=NOW)
         self.assertEqual(fake.calls, [])
+
+    def test_rolling_prune_retains_adjacent_windows_and_shared_boundary(self):
+        boundary = item(1, timestamp="2026-11-10T16:08:25Z")
+        later = item(2, timestamp="2026-11-10T16:08:35Z")
+        first, _ = self.client([
+            {"items": [boundary], "next_page_params": None},
+            {"items": [boundary], "next_page_params": None},
+            {"items": [], "next_page_params": None},
+            {"items": [later], "next_page_params": None},
+        ])
+        run(self.db, first, chain_id=4663, bootstrap=START, window_seconds=5,
+            max_windows=4, now=NOW)
+        self.assertEqual(prune_windows(self.db, 4663, 2),
+                         "2026-11-10T16:08:30Z")
+        self.assertEqual(self.db.execute(
+            "SELECT count(*) FROM source_windows").fetchone()[0], 2)
+        self.assertEqual(self.db.execute(
+            "SELECT count(*) FROM source_creations").fetchone()[0], 1)
+        check_contiguous(self.db, 4663, START + dt.timedelta(seconds=10),
+                         START + dt.timedelta(seconds=20), 5)
+        replay, _ = self.client([
+            {"items": [later], "next_page_params": None},
+            {"items": [], "next_page_params": None},
+        ])
+        result = run(self.db, replay, chain_id=4663,
+                     bootstrap=START + dt.timedelta(seconds=10),
+                     window_seconds=5, max_windows=0, now=NOW)
+        self.assertEqual(result["rechecked_windows"], 2)
 
     def test_persisted_gap_is_rejected(self):
         first, _ = self.client([{"items": [], "next_page_params": None}])
