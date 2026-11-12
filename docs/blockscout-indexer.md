@@ -59,3 +59,8 @@ factory deployments against independent receipts and traces, establish CREATE2
 coverage, attribute projects from first-party evidence, and run a durable
 checkpoint and outbox service. The existing offline 100-point assessment
 remains the only scoring path.
+
+The large-interval PR test initially encountered one Blockscout timeout.
+Timeouts now receive bounded retries; exhaustion still fails without advancing
+the checkpoint. A repeated timeout is a source-capacity problem, not proof of
+an empty interval.

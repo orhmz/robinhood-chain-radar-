@@ -20,6 +20,8 @@ from radar.blockscout_probe import SourceError, fetch
 CHAINS = (4663, 5042)
 UTC = dt.timezone.utc
 TRANSIENT_HTTP = ("HTTP 429", "HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504")
+TRANSIENT_TRANSPORT = ("transport or JSON error (TimeoutError)",
+                       "transport or JSON error (URLError)")
 
 
 def parse_time(value):
@@ -99,7 +101,8 @@ class Client:
             try:
                 return self.fetcher(chain_id, "advanced-filters", params, self.key)
             except SourceError as error:
-                if attempt == 3 or not any(code in str(error) for code in TRANSIENT_HTTP):
+                if attempt == 3 or not any(
+                        code in str(error) for code in TRANSIENT_HTTP + TRANSIENT_TRANSPORT):
                     raise
                 self.sleeper(2 ** attempt)
         raise AssertionError("unreachable")

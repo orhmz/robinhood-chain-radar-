@@ -171,6 +171,16 @@ class BlockscoutIndexerTests(unittest.TestCase):
         with self.assertRaisesRegex(SourceError, "HTTP 403"):
             client.get(4663, {})
         self.assertEqual(delays, [1, 2])
+        calls.clear()
+        def timeout_then_success(chain, path, params, key):
+            calls.append(chain)
+            if len(calls) == 1:
+                raise SourceError("transport or JSON error (TimeoutError)")
+            return {"items": [], "next_page_params": None}
+        client = Client("test-only", timeout_then_success, min_interval=0,
+                        sleeper=delays.append)
+        client.get(4663, {})
+        self.assertEqual((len(calls), delays[-1]), (2, 1))
 
 
 if __name__ == "__main__":
