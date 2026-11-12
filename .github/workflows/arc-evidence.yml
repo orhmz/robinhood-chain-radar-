@@ -1,0 +1,36 @@
+name: Arc known-contract RPC evidence
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/arc-evidence.yml'
+      - 'radar/arc_probe.py'
+  schedule:
+    - cron: '41 2,8,14,20 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify probe rules
+        run: python -m unittest discover -s tests -q
+      - name: Verify Arc RPC and known contracts
+        run: python -m radar.arc_probe --output out/arc_probe.json
+      - name: Preserve source evidence and errors
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arc-known-contract-evidence
+          path: out/arc_probe.json
+          if-no-files-found: warn
+          retention-days: 30
