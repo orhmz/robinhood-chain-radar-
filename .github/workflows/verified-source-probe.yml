@@ -6,6 +6,8 @@ on:
     paths:
       - '.github/workflows/verified-source-probe.yml'
       - 'radar/verified_source_probe.py'
+      - 'radar/scoped_candidates.py'
+      - 'tests/test_scoped_candidates.py'
 
 permissions:
   actions: read
@@ -15,7 +17,7 @@ jobs:
   probe:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -29,11 +31,17 @@ jobs:
         env:
           BLOCKSCOUT_API_KEY: ${{ secrets.BLOCKSCOUT_API_KEY }}
         run: python -m radar.verified_source_probe
+      - name: Verify bounded contract evidence with public RPC
+        env:
+          BLOCKSCOUT_API_KEY: ${{ secrets.BLOCKSCOUT_API_KEY }}
+        run: python -m radar.scoped_candidates
       - name: Preserve diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: verified-contract-source-probe
-          path: out/verified-source-probe.json
+          path: |
+            out/verified-source-probe.json
+            out/scoped-candidates.json
           if-no-files-found: warn
           retention-days: 30
