@@ -22,7 +22,9 @@ CHAINS = (4663, 5042)
 UTC = dt.timezone.utc
 TRANSIENT_HTTP = ("HTTP 429", "HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504")
 TRANSIENT_TRANSPORT = ("transport or JSON error (TimeoutError)",
-                       "transport or JSON error (URLError)")
+                       "transport or JSON error (URLError)",
+                       "transport or JSON error (RemoteDisconnected)",
+                       "transport or JSON error (ConnectionResetError)")
 
 
 def parse_time(value):
