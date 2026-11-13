@@ -1,0 +1,39 @@
+name: Blockscout verified-contract metadata probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/verified-source-probe.yml'
+      - 'radar/verified_source_probe.py'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Restore latest scoped source database
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -m radar.rolling_source restore
+      - name: Probe verified-contract metadata without exposing addresses
+        env:
+          BLOCKSCOUT_API_KEY: ${{ secrets.BLOCKSCOUT_API_KEY }}
+        run: python -m radar.verified_source_probe
+      - name: Preserve diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-contract-source-probe
+          path: out/verified-source-probe.json
+          if-no-files-found: warn
+          retention-days: 30
