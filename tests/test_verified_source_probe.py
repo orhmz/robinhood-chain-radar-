@@ -18,6 +18,7 @@ class VerifiedSourceProbeTests(unittest.TestCase):
 
         def fetcher(chain, path, params, key):
             if path == "smart-contracts":
+                self.assertEqual(params, {})
                 return {"items": [{"address": {"hash": address}}],
                         "next_page_params": None}
             if path.startswith("smart-contracts/"):

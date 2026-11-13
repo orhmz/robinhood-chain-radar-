@@ -59,7 +59,10 @@ def probe(db, key, fetcher=fetch):
             "errors": [],
         }
         try:
-            page = fetcher(chain_id, "smart-contracts", {"filter": "verified"}, key)
+            # The unified API returns HTTP 422 for filter=verified. Its
+            # unfiltered endpoint lists verified contracts by definition;
+            # still inspect each address before treating it as evidence.
+            page = fetcher(chain_id, "smart-contracts", {}, key)
             items = page.get("items") if isinstance(page, dict) else None
             if not isinstance(items, list) or "next_page_params" not in page:
                 raise SourceError("Verified smart-contract list is malformed")
