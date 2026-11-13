@@ -46,6 +46,22 @@ class BlockscoutIndexerTests(unittest.TestCase):
         fake = Fake(pages)
         return Client("test-only", fake, min_interval=0), fake
 
+    def test_transient_remote_disconnect_retries_within_budget(self):
+        calls = []
+
+        def fetcher(chain, path, params, key):
+            calls.append(path)
+            if len(calls) < 3:
+                raise SourceError("Blockscout advanced-filters: transport or JSON error "
+                                  "(RemoteDisconnected)")
+            return {"items": [], "next_page_params": None}
+
+        client = Client("test-only", fetcher, min_interval=0,
+                        sleeper=lambda _: None)
+        self.assertEqual(client.get(4663, {}),
+                         {"items": [], "next_page_params": None})
+        self.assertEqual(len(calls), 3)
+
     def test_exhausts_cursor_and_records_factory_and_direct(self):
         first = {"items": [item(1)], "next_page_params": {"block_number": 10}}
         second = {"items": [item(2, internal=None)], "next_page_params": None}
