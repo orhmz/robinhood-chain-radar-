@@ -1,7 +1,7 @@
 # Rolling free source service
 
 The scheduled `Rolling Blockscout source coverage (no alerts)` workflow
-ingests creation-filter pages for Robinhood 4663 and Arc 5042 every two hours.
+ingests creation-filter pages for Robinhood 4663 and Arc 5042 hourly.
 It uses fixed five-minute windows and a 30-minute lag. Every page in a window
 must complete before that window's checkpoint advances.
 
@@ -45,3 +45,26 @@ The free API and GitHub artifact quotas must be watched. A source timeout,
 replay drift, artifact expiry, missing page or storage limit causes a visible
 failure. A one-hour API request repeatedly timed out in development; the
 five-minute windows passed real API tests.
+GitHub's schedule is best effort: a successful past run does not prove the
+current source is fresh. The candidate diagnostic checks its actual source
+checkpoint and fails when it is more than four hours old.
+
+## Bounded contract evidence (experimental)
+
+The verified-contract API can list 50 contracts per first page on each chain
+without a paid plan. The query must omit `filter=verified`; that parameter
+returned HTTP 422 on both chains. The list is a discovery source, not proof
+that a contract belongs to a product. A separate read-only diagnostic checks
+at most 12 recent source creation rows per chain against Blockscout's
+verification flag, fully verified source metadata, the public RPC transaction
+receipt and current bytecode. For direct deployments the receipt must name
+the same contract address. For internal deployments the address-to-transaction
+link still comes from Blockscout; public RPC receipts do not expose the
+internal create operation or establish CREATE2. The diagnostic marks those
+links pending trace verification.
+
+The diagnostic runs every four hours and fails its status if either source
+stream is more than four hours behind current time. Its evidence records have no project or token
+identity, opportunity score or alert eligibility. Official project, product
+and developer sources must be matched and reviewed before any scoring or
+notification is considered.
