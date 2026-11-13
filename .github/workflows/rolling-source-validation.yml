@@ -20,7 +20,7 @@ jobs:
   validation:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,10 +31,11 @@ jobs:
       - name: Test bounded rolling ingestion with real source
         env:
           BLOCKSCOUT_API_KEY: ${{ secrets.BLOCKSCOUT_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           python -m radar.rolling_source restore
           python -m radar.rolling_source scan \
-            --report out/pr-rolling-report.json --max-windows 24
+            --report out/pr-rolling-report.json --max-windows 288
       - name: Upload validation database for exact restore
         id: database
         uses: actions/upload-artifact@v4
