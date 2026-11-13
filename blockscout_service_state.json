@@ -1,6 +1,20 @@
 {
   "version": 1,
-  "initialized": false,
+  "initialized": true,
+  "artifact_id": 14006000970,
+  "artifact_run_id": 43355132502,
+  "db_sha256": "8eea7ea46f557faed6433f63f66f991a8ac012221cfbc28affd67c2138196688",
+  "updated_at_utc": "2026-11-13T02:52:32Z",
+  "chains": {
+    "4663": {
+      "bootstrap_utc": "2026-11-13T00:50:00Z",
+      "next_start_utc": "2026-11-13T02:20:00Z"
+    },
+    "5042": {
+      "bootstrap_utc": "2026-11-13T00:50:00Z",
+      "next_start_utc": "2026-11-13T02:20:00Z"
+    }
+  },
   "chain_wide_coverage": false,
   "alert_eligible": false
 }
