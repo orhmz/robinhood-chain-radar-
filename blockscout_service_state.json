@@ -1,18 +1,18 @@
 {
   "version": 1,
   "initialized": true,
-  "artifact_id": 14298488028,
-  "artifact_run_id": 44015108238,
-  "db_sha256": "e9808227dca5d8506fc550f2294c696c04ce82a98e59721cabe20df822e9e271",
-  "updated_at_utc": "2026-11-17T04:09:06Z",
+  "artifact_id": 14334122114,
+  "artifact_run_id": 44096191440,
+  "db_sha256": "9c66c13ffe4d65fc9d91b1fb1d78e80a7de79fdc3f4d47f286d196ccf72bbd21",
+  "updated_at_utc": "2026-11-17T13:47:26Z",
   "chains": {
     "4663": {
-      "bootstrap_utc": "2026-11-15T03:35:00Z",
-      "next_start_utc": "2026-11-17T03:35:00Z"
+      "bootstrap_utc": "2026-11-15T13:15:00Z",
+      "next_start_utc": "2026-11-17T13:15:00Z"
     },
     "5042": {
-      "bootstrap_utc": "2026-11-15T03:35:00Z",
-      "next_start_utc": "2026-11-17T03:35:00Z"
+      "bootstrap_utc": "2026-11-15T13:15:00Z",
+      "next_start_utc": "2026-11-17T13:15:00Z"
     }
   },
   "chain_wide_coverage": false,
