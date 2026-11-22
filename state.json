@@ -1,6 +1,6 @@
 {
-  "last_observed_head": 120100127,
-  "observed_at_utc": "2026-11-21T19:21:15.438109+00:00",
-  "head_timestamp_utc": "2026-11-21T19:21:11+00:00",
+  "last_observed_head": 120454155,
+  "observed_at_utc": "2026-11-22T06:56:17.717272+00:00",
+  "head_timestamp_utc": "2026-11-22T06:56:13+00:00",
   "last_fully_scanned_contract_block": null
 }
