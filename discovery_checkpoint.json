@@ -1,8 +1,8 @@
 {
   "chain_id": 4663,
-  "last_scanned_block": 111009535,
-  "last_scanned_block_hash": "0x3ad2e175fb75beda1d8dd3c9eaa736d762348e8ff7bc3652b5576844323dc5b5",
-  "updated_at_utc": "2026-11-26T08:26:53.148839+00:00",
+  "last_scanned_block": 111009547,
+  "last_scanned_block_hash": "0x01204049e2ad33731dc548e7722f3f7d3f13822716a0bfc22757023f103193fc",
+  "updated_at_utc": "2026-11-26T21:37:56.205401+00:00",
   "historical_gap_before_bootstrap": true,
   "coverage_type": "top_level_contract_creation_only"
 }
